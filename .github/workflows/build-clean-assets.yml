@@ -92,8 +92,5 @@ jobs:
             fi
             
             echo "Publishing release: $TAG with $fname"
-            gh release create "$TAG" "$zipfile" \
-              --title "$TITLE" \
-              --notes "$BODY" \
-              --clobber || gh release upload "$TAG" "$zipfile" --clobber
+            gh release create "$TAG" "$zipfile" --title "$TITLE" --notes "$BODY" || gh release upload "$TAG" "$zipfile" --clobber
           done
