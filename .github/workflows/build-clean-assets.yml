@@ -3,10 +3,11 @@ name: Build Minecraft Clean Assets
 on:
   workflow_dispatch:
     inputs:
-      minecraft_version:
-        description: 'Minecraft Version (e.g. 1.19.4, 1.20.1, 1.20.4, 1.21)'
+      target:
+        description: 'Target to build: "universal", "all", or a specific version (e.g. 1.19.4, 1.20.1, 1.21.4)'
         required: true
-        default: '1.19.4'
+        default: 'universal'
+        type: string
       keep_records:
         description: 'Keep Jukebox Music Discs / Records'
         type: boolean
@@ -15,8 +16,10 @@ on:
 
 jobs:
   build:
-    name: Build Clean Assets
+    name: Build Clean Assets (${{ inputs.target }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout Repository
@@ -27,32 +30,61 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Generate Clean Filtered Assets
+      - name: Generate Clean Assets
         run: |
           RECORDS_FLAG=""
           if [ "${{ inputs.keep_records }}" = "false" ]; then
             RECORDS_FLAG="--no-records"
           fi
-          python3 generator.py ${{ inputs.minecraft_version }} --out dist $RECORDS_FLAG
+          
+          TARGET="${{ inputs.target }}"
+          echo "Target to build: $TARGET"
+          
+          mkdir -p dist
+          if [ "$TARGET" = "universal" ]; then
+            python3 generator.py --universal --out dist $RECORDS_FLAG
+          elif [ "$TARGET" = "all" ]; then
+            python3 generator.py --all --out dist $RECORDS_FLAG
+          else
+            python3 generator.py "$TARGET" --out dist $RECORDS_FLAG
+          fi
 
-      - name: Upload Clean Assets Artifact
+      - name: Upload Clean Assets Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Minecraft-${{ inputs.minecraft_version }}-Filtered-Assets
+          name: Minecraft-Clean-Assets-${{ inputs.target }}
           path: dist/*.zip
           if-no-files-found: error
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/heads/main')
-        with:
-          tag_name: v${{ inputs.minecraft_version }}
-          name: Minecraft ${{ inputs.minecraft_version }} Clean Assets
-          body: |
-            ### 🎮 Minecraft ${{ inputs.minecraft_version }} Clean Assets for PojavLauncher
-            - **Stripped**: Ambient background music (~300MB+ saved)
-            - **Preserved**: 100% of sound effects (mobs, blocks, steps, items, entities, ambient, UI), languages, and GUI textures.
-            - **Format**: Ready for instant one-tap extraction into `.minecraft/assets/`.
-          files: dist/*.zip
+      - name: Publish to GitHub Releases
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for zipfile in dist/*.zip; do
+            [ -f "$zipfile" ] || continue
+            fname=$(basename "$zipfile")
+            
+            if echo "$fname" | grep -q "Universal"; then
+              TAG="universal"
+              TITLE="Minecraft Universal Clean Assets (1.16 to Latest)"
+              BODY="### 🎮 Minecraft Universal Clean Assets for PojavLauncher
+- **Supported Versions**: Minecraft 1.16 through Latest (1.21.4+) in a single package.
+- **Size Savings**: Stripped ambient music tracks (~300MB+ stripped per version).
+- **100% SFX & Textures**: Every block, mob, item, cave ambience, step sound, language, and index file intact.
+- **PojavLauncher Offline**: Instant one-tap extraction directly into \`.minecraft/assets/\`."
+            else
+              VER=$(echo "$fname" | sed -E 's/Minecraft-(.*)-Filtered-Assets\.zip/\1/')
+              TAG="v${VER}"
+              TITLE="Minecraft ${VER} Clean Assets"
+              BODY="### 🎮 Minecraft ${VER} Clean Assets for PojavLauncher
+- **Stripped**: Ambient background music (~300MB+ saved)
+- **Preserved**: 100% of sound effects (mobs, blocks, steps, items, entities, ambient, UI), languages, and GUI textures.
+- **Compatibility**: Ready for instant one-tap extraction into \`.minecraft/assets/\`."
+            fi
+            
+            echo "Publishing release: $TAG with $fname"
+            gh release create "$TAG" "$zipfile" \
+              --title "$TITLE" \
+              --notes "$BODY" \
+              --clobber || gh release upload "$TAG" "$zipfile" --clobber
+          done
