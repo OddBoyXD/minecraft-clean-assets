@@ -1,0 +1,58 @@
+name: Build Minecraft Clean Assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      minecraft_version:
+        description: 'Minecraft Version (e.g. 1.19.4, 1.20.1, 1.20.4, 1.21)'
+        required: true
+        default: '1.19.4'
+      keep_records:
+        description: 'Keep Jukebox Music Discs / Records'
+        type: boolean
+        required: true
+        default: true
+
+jobs:
+  build:
+    name: Build Clean Assets
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Generate Clean Filtered Assets
+        run: |
+          RECORDS_FLAG=""
+          if [ "${{ inputs.keep_records }}" = "false" ]; then
+            RECORDS_FLAG="--no-records"
+          fi
+          python3 generator.py ${{ inputs.minecraft_version }} --out dist $RECORDS_FLAG
+
+      - name: Upload Clean Assets Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Minecraft-${{ inputs.minecraft_version }}-Filtered-Assets
+          path: dist/*.zip
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/heads/main')
+        with:
+          tag_name: v${{ inputs.minecraft_version }}
+          name: Minecraft ${{ inputs.minecraft_version }} Clean Assets
+          body: |
+            ### 🎮 Minecraft ${{ inputs.minecraft_version }} Clean Assets for PojavLauncher
+            - **Stripped**: Ambient background music (~300MB+ saved)
+            - **Preserved**: 100% of sound effects (mobs, blocks, steps, items, entities, ambient, UI), languages, and GUI textures.
+            - **Format**: Ready for instant one-tap extraction into `.minecraft/assets/`.
+          files: dist/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
